@@ -1,0 +1,17 @@
+{
+  "name": "cosmic-gaming",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "shared",
+    "desktop",
+    "dashboard"
+  ],
+  "scripts": {
+    "dev:desktop": "npm run dev -w @cosmic/desktop",
+    "dev:dashboard": "npm run dev -w @cosmic/dashboard",
+    "typecheck": "npm run typecheck -w @cosmic/shared && npm run typecheck -w @cosmic/desktop && npm run typecheck -w @cosmic/dashboard",
+    "build": "npm run build -w @cosmic/desktop && npm run build -w @cosmic/dashboard",
+    "package:desktop": "npm run package -w @cosmic/desktop"
+  }
+}

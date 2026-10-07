@@ -1,0 +1,98 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Dashboard (email/password login) — the only party that can change cafés / rates
+    function isDashboardUser() {
+      return signedIn() && request.auth.token.firebase.sign_in_provider == 'password';
+    }
+
+    // Counter .exe (auto anonymous sign-in) — only writes sessions
+    function isCounterApp() {
+      return signedIn() && request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
+
+    function validCafeName(data) {
+      return data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 80
+        && data.hourlyRate is number
+        && data.hourlyRate >= 0
+        && data.hourlyRate <= 100000;
+    }
+
+    function identityUnchanged(data) {
+      return data.durationMinutes == resource.data.durationMinutes
+        && data.startedAt == resource.data.startedAt
+        && data.rateAtStart == resource.data.rateAtStart
+        && data.startDate == resource.data.startDate;
+    }
+
+    match /cafes/{cafeId} {
+      allow read: if signedIn();
+      allow create: if isDashboardUser() && validCafeName(request.resource.data);
+      allow update: if isDashboardUser()
+        && validCafeName(request.resource.data)
+        && (resource.data.createdAt == request.resource.data.createdAt
+            || request.resource.data.createdAt is int);
+      allow delete: if false;
+
+      match /sessions/{sessionId} {
+        allow read: if signedIn();
+
+        allow create: if isCounterApp()
+          && request.resource.data.status == 'active'
+          && request.resource.data.durationMinutes is int
+          && request.resource.data.durationMinutes > 0
+          && request.resource.data.durationMinutes <= 1440
+          && request.resource.data.extensions is list
+          && request.resource.data.extensions.size() == 0
+          && request.resource.data.startedAt is number
+          && request.resource.data.endsAt is number
+          && request.resource.data.endsAt == request.resource.data.startedAt
+              + request.resource.data.durationMinutes * 60000
+          && request.resource.data.rateAtStart is number
+          && request.resource.data.rateAtStart >= 0
+          && request.resource.data.startDate is string
+          && request.resource.data.events is list
+          && request.resource.data.events.size() == 1;
+
+        allow update: if isCounterApp()
+          && identityUnchanged(request.resource.data)
+          && request.resource.data.events is list
+          && request.resource.data.events.size() == resource.data.events.size() + 1
+          && (
+            // +30 / +60 extension: still active, end time moves forward, list grows
+            (
+              resource.data.status == 'active'
+              && request.resource.data.status == 'active'
+              && request.resource.data.extensions is list
+              && request.resource.data.extensions.size() == resource.data.extensions.size() + 1
+              && request.resource.data.endsAt is number
+              && request.resource.data.endsAt > resource.data.endsAt
+            )
+            ||
+            // completion (natural expiry or early end): frozen duration/extensions
+            (
+              resource.data.status == 'active'
+              && request.resource.data.status == 'completed'
+              && request.resource.data.extensions == resource.data.extensions
+              && request.resource.data.billedMinutes is int
+              && request.resource.data.billedMinutes > 0
+              && request.resource.data.billedMinutes <= 1440
+              && request.resource.data.amount is number
+              && request.resource.data.amount >= 0
+              && request.resource.data.completedAt is number
+            )
+          );
+
+        // Only the dashboard (password users) may delete — the counter app never can
+        allow delete: if isDashboardUser();
+      }
+    }
+  }
+}
